@@ -66,6 +66,7 @@ typedef unsigned char  u8;
 // Useful MIDI constants
 // ____________________________________________________________________________
 
+#define NOTEONCHONE			0x91
 #define	NOTEON				0x90
 #define	NOTEOFF				0x80
 #define	POLYAFTERTOUCH		0xA0

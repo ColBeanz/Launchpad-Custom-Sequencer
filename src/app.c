@@ -73,6 +73,7 @@ void app_surface_event(u8 type, u8 index, u8 value)
             
             // example - send MIDI
             hal_send_midi(DINMIDI, NOTEON | 0, index, value);
+	    hal_send_midi(USBSTANDALONE, NOTEONCHONE, index, value);
             
         }
         break;
