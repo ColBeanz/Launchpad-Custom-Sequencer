@@ -61,15 +61,14 @@ u8 g_Buttons[BUTTON_COUNT] = {0};
 #define RANGE 8
 #define STEPS 8
 
-static u8 DRUM_NOTES[RANGE] =
+u8 DRUM_NOTES[RANGE] =
 {
-	36, 37, 38, 39, 40, 41, 42, 43, 44
+	36, 37, 38, 39, 40, 41, 42, 43
 };
 
 struct PadState{
 	u8 steps[STEPS];
 	u8 pos;
-	u8 notes[RANGE];
 };
 
 struct PadState Channel1 = { .pos = 0};
@@ -79,13 +78,50 @@ int IsNoteOn(u8 flags, u8 bit)
     return ((flags & (1 << bit)) != 0);
 }
 
-void CalclulateNotes(u8* notes, u8 step) // step is the 8 bit binary flag from which the midi notes will be derived
+void SetFlag(u8* steps, u8 note)
 {
-    for (int i = 1; i <= RANGE; i++)
+	if (note > 80)
+	{
+		steps[note-80] = 128;
+	}
+	if (note > 70)
+	{
+		steps[note-70] = 64;
+	}
+	if (note > 60)
+	{
+		steps[note-60] = 32;
+	}
+	if (note > 50)
+	{
+		steps[note-50] = 16;
+	}
+	if (note > 40)
+	{
+		steps[note-40] = 8;
+	}
+	if (note > 30)
+	{
+		steps[note-30] = 4;
+	}
+	if (note > 20)
+	{
+		steps[note-20] = 2;
+	}
+	if (note > 10)
+	{
+		steps[note-10] = 1;
+	}
+}
+
+void TriggerNotes(u8 step) // step is the 8 bit binary flag from which the midi notes will be derived
+{
+    for (int bitPosition = 0; bitPosition < RANGE; bitPosition++)
     {
-        if (IsNoteOn(step, i))
+        if (IsNoteOn(step, bitPosition))
         {
-            notes[i -1] = DRUM_NOTES[i -1];
+			hal_send_midi(DINMIDI, NOTEON | 0, DRUM_NOTES[bitPosition], MAXLED);
+			hal_send_midi(USBSTANDALONE, NOTEON | 0, DRUM_NOTES[bitPosition], MAXLED);
         }
     }
 };
@@ -132,6 +168,7 @@ void app_surface_event(u8 type, u8 index, u8 value)
                 g_Buttons[index] = MAXLED * !g_Buttons[index];
             }
 
+			SetFlag(Channel1.steps, index);
 
             // example - light / extinguish pad LEDs
             hal_plot_led(TYPEPAD, index, 0, 0, g_Buttons[index]);
@@ -233,6 +270,8 @@ void app_timer_event()
 		    }
 
 			PlotPlayhead(Channel1.pos);
+
+			TriggerNotes(Channel1.steps[Channel1.pos]);
 
 		    Channel1.pos++;
 		}

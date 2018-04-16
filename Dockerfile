@@ -6,7 +6,7 @@ CMD ["/sbin/my_init"]
 
 # Set Env
 ENV DEBIAN_FRONTEND noninteractive
-ENV path /launchpad-pro
+ENV path /launchpad-pro-sequencer
 
 # Set the working directory
 WORKDIR ${path}
