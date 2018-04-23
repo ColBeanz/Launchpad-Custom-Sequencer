@@ -78,39 +78,39 @@ int IsNoteOn(u8 flags, u8 bit)
     return ((flags & (1 << bit)) != 0);
 }
 
-void SetFlag(u8* steps, u8 note)
+void SetFlag(u8 *steps, u8 note)
 {
-	if (note > 80)
+	if (note > 80) // Top row of pads
 	{
-		steps[note-80] = 128;
+		steps[note-81] = steps[note-81] ^ 128;
 	}
-	if (note > 70)
+	if (note > 70) // next row of pads and so on...
 	{
-		steps[note-70] = 64;
+		steps[note-71] = steps[note-71] ^ 64;
 	}
 	if (note > 60)
 	{
-		steps[note-60] = 32;
+		steps[note-61] = steps[note-61] ^ 32;
 	}
 	if (note > 50)
 	{
-		steps[note-50] = 16;
+		steps[note-51] = steps[note-51] ^ 16;
 	}
 	if (note > 40)
 	{
-		steps[note-40] = 8;
+		steps[note-41] = steps[note-41] ^ 8;
 	}
 	if (note > 30)
 	{
-		steps[note-30] = 4;
+		steps[note-31] = steps[note-31] ^ 4;
 	}
 	if (note > 20)
 	{
-		steps[note-20] = 2;
+		steps[note-21] = steps[note-21] ^ 2;
 	}
 	if (note > 10)
 	{
-		steps[note-10] = 1;
+		steps[note-11] = steps[note-11] ^ 1;
 	}
 }
 
@@ -129,6 +129,31 @@ void TriggerNotes(u8 step) // step is the 8 bit binary flag from which the midi 
 int CalculateMsPerClock(int tempo)
 {
     return MS_PER_MIN / (CLOCK_RATE * tempo);
+}
+
+void PlotClear()
+{
+	for (int i = 10; i <= 80; i += 10)
+	{
+		for (int j = 1; j <= RANGE; j++)
+		{
+			hal_plot_led(TYPEPAD, i+j, 0, 0, 0);
+		}
+	}
+}
+
+void PlotNotes(u8 *steps)
+{
+	for (u8 step = 0; step < RANGE; step ++)
+	{
+		for (int bit = 0; bit < RANGE; bit++)
+		{
+			if(IsNoteOn(steps[step], bit))
+			{
+				hal_plot_led(TYPEPAD, (10 * bit) + step + 11, MAXLED, 0, 0);
+			}
+		}
+	}
 }
 
 void PlotPlayhead(int step)
@@ -163,19 +188,25 @@ void app_surface_event(u8 type, u8 index, u8 value)
         case  TYPEPAD:
         {
             // toggle it and store it off, so we can save to flash if we want to
-            if (value)
+			/*
+			if (value)
             {
                 g_Buttons[index] = MAXLED * !g_Buttons[index];
             }
+			*/
+			if (value)
+			{
+				SetFlag(Channel1.steps, index);
+			}
 
-			SetFlag(Channel1.steps, index);
-
+			/*
             // example - light / extinguish pad LEDs
             hal_plot_led(TYPEPAD, index, 0, 0, g_Buttons[index]);
 
             // example - send MIDI
             hal_send_midi(DINMIDI, NOTEON | 0, index, value);
 			hal_send_midi(USBSTANDALONE, NOTEONCHONE, index, value);
+			*/
 
         }
         break;
@@ -269,7 +300,11 @@ void app_timer_event()
 				Channel1.pos = 0;
 		    }
 
+			PlotClear();
+
 			PlotPlayhead(Channel1.pos);
+
+			PlotNotes(Channel1.steps);
 
 			TriggerNotes(Channel1.steps[Channel1.pos]);
 
@@ -277,8 +312,6 @@ void app_timer_event()
 		}
 
     }
-
-    static int position = 0;
 
 
 
@@ -322,7 +355,6 @@ void app_init(const u16 *adc_raw)
     g_ms_per_tick = CalculateMsPerClock(g_tempo);
     // example - load button states from flash
     hal_read_flash(0, g_Buttons, BUTTON_COUNT);
-
     // example - light the LEDs to say hello!
     for (int i=0; i < 10; ++i)
     {
