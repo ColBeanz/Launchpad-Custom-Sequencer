@@ -56,6 +56,12 @@ static const u16 *g_ADC = 0;
 // buffer to store pad states for flash save
 #define BUTTON_COUNT 100
 
+#define TEMPOUP 20
+#define TEMPODOWN 10
+
+static int g_tempo = 100;
+static int g_ms_per_tick;
+
 u8 g_Buttons[BUTTON_COUNT] = {0};
 
 #define RANGE 8
@@ -80,38 +86,7 @@ int IsNoteOn(u8 flags, u8 bit)
 
 void SetFlag(u8 *steps, u8 note)
 {
-	if (note > 80) // Top row of pads
-	{
-		steps[note-81] = steps[note-81] ^ 128;
-	}
-	if (note > 70) // next row of pads and so on...
-	{
-		steps[note-71] = steps[note-71] ^ 64;
-	}
-	if (note > 60)
-	{
-		steps[note-61] = steps[note-61] ^ 32;
-	}
-	if (note > 50)
-	{
-		steps[note-51] = steps[note-51] ^ 16;
-	}
-	if (note > 40)
-	{
-		steps[note-41] = steps[note-41] ^ 8;
-	}
-	if (note > 30)
-	{
-		steps[note-31] = steps[note-31] ^ 4;
-	}
-	if (note > 20)
-	{
-		steps[note-21] = steps[note-21] ^ 2;
-	}
-	if (note > 10)
-	{
-		steps[note-11] = steps[note-11] ^ 1;
-	}
+	steps[(note % 10) - 1] = steps[(note % 10) - 1] ^ 1 << note / 10 - 1;
 }
 
 void TriggerNotes(u8 step) // step is the 8 bit binary flag from which the midi notes will be derived
@@ -120,15 +95,16 @@ void TriggerNotes(u8 step) // step is the 8 bit binary flag from which the midi 
     {
         if (IsNoteOn(step, bitPosition))
         {
-			hal_send_midi(DINMIDI, NOTEON | 0, DRUM_NOTES[bitPosition], MAXLED);
-			hal_send_midi(USBSTANDALONE, NOTEON | 0, DRUM_NOTES[bitPosition], MAXLED);
+			hal_send_midi(DINMIDI, NOTEON | 0, DRUM_NOTES[bitPosition], 127);
+			hal_send_midi(USBSTANDALONE, NOTEON | 0, DRUM_NOTES[bitPosition], 127);
         }
     }
 };
 
-int CalculateMsPerClock(int tempo)
+void CalculateMsPerClock(int tempo)
 {
-    return MS_PER_MIN / (CLOCK_RATE * tempo);
+	g_tempo = tempo;
+    g_ms_per_tick = MS_PER_MIN / (CLOCK_RATE * g_tempo);
 }
 
 void PlotClear()
@@ -196,7 +172,24 @@ void app_surface_event(u8 type, u8 index, u8 value)
 			*/
 			if (value)
 			{
-				SetFlag(Channel1.steps, index);
+				switch (index)
+				{
+					case TEMPODOWN:
+					{
+						CalculateMsPerClock(g_tempo - 5);
+					}
+					break;
+					case TEMPOUP:
+					{
+						CalculateMsPerClock(g_tempo + 5);
+					}
+					break;
+					default:
+					{
+						SetFlag(Channel1.steps, index);
+					}
+					break;
+				}
 			}
 
 			/*
@@ -275,10 +268,6 @@ void app_cable_event(u8 type, u8 value)
 //______________________________________________________________________________
 
 
-static int g_tempo = 120;
-static int g_ms_per_tick;
-
-
 void app_timer_event()
 {
     static int ms = 0;
@@ -352,7 +341,7 @@ void app_timer_event()
 void app_init(const u16 *adc_raw)
 {
     // calculate how many milliseconds per tick for midi clock
-    g_ms_per_tick = CalculateMsPerClock(g_tempo);
+    CalculateMsPerClock(g_tempo);
     // example - load button states from flash
     hal_read_flash(0, g_Buttons, BUTTON_COUNT);
     // example - light the LEDs to say hello!
