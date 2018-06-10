@@ -19,14 +19,14 @@
 
  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURstepE ARE
  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
  FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ OF THIS SOFTWARE, EVEN IF ADVISED OF THE stepSIBILITY OF SUCH DAMAGE.
 
  *****************************************************************************/
 
@@ -53,55 +53,104 @@
 // store ADC frame pointer
 static const u16 *g_ADC = 0;
 
-// buffer to store pad states for flash save
-#define BUTTON_COUNT 100
-
+// control buttons
 #define TEMPOUP 20
 #define TEMPODOWN 10
+#define PAGEUP 91
+#define PAGEDOWN 92
+#define PAGELEFT 93
+#define PAGERIGHT 94
+#define DRUMCHANNEL 95
+#define BASSCHANNEL 96
+#define HARMONYCHANNEL 97
+#define MELODYCHANNEL 98
 
-static int g_tempo = 100;
-static int g_ms_per_tick;
+static u8 g_tempo = 100;
+static u8 g_ms_per_tick;
 
-u8 g_Buttons[BUTTON_COUNT] = {0};
-
-#define RANGE 8
+// instrument properties
+#define LOWESTNOTE 36
+#define RANGE 32
 #define STEPS 8
+#define PHRASES 32
+#define NUMINSTRUMENTS 4
+#define INSTRUMENT0 0
+#define INSTRUMENT1 1
+#define INSTRUMENT2 2
+#define INSTRUMENT3 3
 
-u8 DRUM_NOTES[RANGE] =
+// view modes
+#define ARRANGERSCREEN 0
+#define NOTESCREEN 1
+
+u8 g_Mode = NOTESCREEN;
+u8 g_CurrentInstrument = INSTRUMENT0;
+
+struct Instrument{
+	u32 steps[STEPS * PHRASES];
+	u8 sequence[PHRASES]; // Array representing the order of phrases to be played
+	u8 phrase; // Position through sequence of phrases - index into sequence
+	u8 phraseView; // Current screen we are editing (1, 32)
+	u8 pitchOffset;
+};
+
+struct Instrument Instruments[4];
+
+
+void MakeInstruments()
 {
-	36, 37, 38, 39, 40, 41, 42, 43
-};
+	u8 i;
+	for(i = 0; i < NUMINSTRUMENTS; i++ )
+	{
+		Instruments[i].sequence[0] = 1;
+		Instruments[i].sequence[1] = 2;
+		Instruments[i].phrase = 0;
+		Instruments[i].phraseView = 1;
+	}
+}
 
-struct PadState{
-	u8 steps[STEPS];
-	u8 pos;
-};
-
-struct PadState Channel1 = { .pos = 0};
-
-int IsNoteOn(u8 flags, u8 bit)
+int IsNoteOn(u32 flags, u8 bit)
 {
     return ((flags & (1 << bit)) != 0);
 }
 
-void SetFlag(u8 *steps, u8 note)
+void SetFlag(u32 steps[], u8 note, u8 phraseView, u8 pitchOffset)
 {
-	steps[(note % 10) - 1] = steps[(note % 10) - 1] ^ 1 << note / 10 - 1;
+	u8 index = (note % 10) + ((phraseView - 1) * STEPS) - 1;
+
+	steps[index] = steps[index] ^ 1 << (((note / 10) - 1) + pitchOffset);
 }
 
-void TriggerNotes(u8 step) // step is the 8 bit binary flag from which the midi notes will be derived
+void IncrementSequence(struct Instrument *instrument)
 {
-    for (int bitPosition = 0; bitPosition < RANGE; bitPosition++)
+	instrument->phrase++;
+	if(instrument->sequence[instrument->phrase] == 0 || instrument->phrase == 32)
+	{
+		instrument->phrase = 0;
+	}
+}
+
+void TriggerNotes(struct Instrument *instrument, u8 step, u8 channel)
+{
+	if(instrument->sequence[instrument->phrase] == 0)
+	{
+		return;
+	}
+
+	u8 index = instrument->sequence[instrument->phrase] - 1;
+	u32 flags = instrument->steps[(index * STEPS) + step];
+
+    for (u8 bitposition = 0; bitposition < RANGE; bitposition++)
     {
-        if (IsNoteOn(step, bitPosition))
+        if (IsNoteOn(flags, bitposition))
         {
-			hal_send_midi(DINMIDI, NOTEON | 0, DRUM_NOTES[bitPosition], 127);
-			hal_send_midi(USBSTANDALONE, NOTEON | 0, DRUM_NOTES[bitPosition], 127);
+			hal_send_midi(DINMIDI, NOTEON | channel, bitposition + LOWESTNOTE, 127);
+			hal_send_midi(USBSTANDALONE, NOTEON | channel, bitposition + LOWESTNOTE, 127);
         }
     }
 };
 
-void CalculateMsPerClock(int tempo)
+void CalculateMsPerClock(u8 tempo)
 {
 	g_tempo = tempo;
     g_ms_per_tick = MS_PER_MIN / (CLOCK_RATE * g_tempo);
@@ -118,38 +167,43 @@ void PlotClear()
 	}
 }
 
-void PlotNotes(u8 *steps)
+void PlotNotes(struct Instrument *instrument)
 {
-	for (u8 step = 0; step < RANGE; step ++)
+	u8 phrase = instrument->phraseView - 1;
+	u8 begin = phrase * STEPS;
+	u8 end = begin + STEPS;
+	u8 bottom = instrument->pitchOffset;
+	u8 top = bottom + STEPS;
+	for (u8 step = begin; step < end; step ++)
 	{
-		for (int bit = 0; bit < RANGE; bit++)
+		for (u8 bit = bottom; bit < top; bit++)
 		{
-			if(IsNoteOn(steps[step], bit))
+			if(IsNoteOn(instrument->steps[step], bit))
 			{
-				hal_plot_led(TYPEPAD, (10 * bit) + step + 11, MAXLED, 0, 0);
+				hal_plot_led(TYPEPAD, (10 * (bit - instrument->pitchOffset)) + (step - begin) + 11, MAXLED, 0, 0);
 			}
 		}
 	}
 }
 
-void PlotPlayhead(int step)
+void PlotPlayhead(u8 step)
 {
 	if (step == 0)
 	{
-		for (int i = 1; i < 9; i++)
+		for (u8 i = 1; i < 9; i++)
 		{
 			hal_plot_led(TYPEPAD, 8 + (i * 10), 0, 0, 0);
 		}
 	}
 	else
 	{
-		for (int i = 1; i < 9; i++)
+		for (u8 i = 1; i < 9; i++)
 		{
 			hal_plot_led(TYPEPAD, step + (i * 10), 0, 0, 0);
 		}
 	}
 
-	for (int i = 1; i < 9; i++)
+	for (u8 i = 1; i < 9; i++)
 	{
 		hal_plot_led(TYPEPAD, (step + 1) + (i * 10), MAXLED, MAXLED, MAXLED);
 	}
@@ -174,6 +228,26 @@ void app_surface_event(u8 type, u8 index, u8 value)
 			{
 				switch (index)
 				{
+					case DRUMCHANNEL:
+					{
+						g_CurrentInstrument = INSTRUMENT0;
+					}
+					break;
+					case BASSCHANNEL:
+					{
+						g_CurrentInstrument = INSTRUMENT1;
+					}
+					break;
+					case HARMONYCHANNEL:
+					{
+						g_CurrentInstrument = INSTRUMENT2;
+					}
+					break;
+					case MELODYCHANNEL:
+					{
+						g_CurrentInstrument = INSTRUMENT3;
+					}
+					break;
 					case TEMPODOWN:
 					{
 						CalculateMsPerClock(g_tempo - 5);
@@ -184,9 +258,41 @@ void app_surface_event(u8 type, u8 index, u8 value)
 						CalculateMsPerClock(g_tempo + 5);
 					}
 					break;
+					case PAGELEFT:
+					{
+						if(Instruments[g_CurrentInstrument].phraseView != 1)
+						{
+							Instruments[g_CurrentInstrument].phraseView -= 1;
+						}
+					}
+					break;
+					case PAGERIGHT:
+					{
+						if(Instruments[g_CurrentInstrument].phraseView != 32)
+						{
+							Instruments[g_CurrentInstrument].phraseView += 1;
+						}
+					}
+					break;
+					case PAGEUP:
+					{
+						if(Instruments[g_CurrentInstrument].pitchOffset < 24)
+						{
+							Instruments[g_CurrentInstrument].pitchOffset += 1;
+						}
+					}
+					break;
+					case PAGEDOWN:
+					{
+						if(Instruments[g_CurrentInstrument].pitchOffset != 0)
+						{
+							Instruments[g_CurrentInstrument].pitchOffset -= 1;
+						}
+					}
+					break;
 					default:
 					{
-						SetFlag(Channel1.steps, index);
+						SetFlag(Instruments[g_CurrentInstrument].steps, index, Instruments[g_CurrentInstrument].phraseView, Instruments[g_CurrentInstrument].pitchOffset);
 					}
 					break;
 				}
@@ -209,7 +315,7 @@ void app_surface_event(u8 type, u8 index, u8 value)
             if (value)
             {
                 // save button states to flash (reload them by power cycling the hardware!)
-                hal_write_flash(0, g_Buttons, BUTTON_COUNT);
+                //hal_write_flash(0, g_Buttons, BUTTON_COUNT);
             }
         }
         break;
@@ -270,34 +376,46 @@ void app_cable_event(u8 type, u8 value)
 
 void app_timer_event()
 {
-    static int ms = 0;
-    static int semiquaver = 0;
+    static u8 ms = 0;
+    static u8 semiquaverinterval = 0;
+	static u8 step = 0;
 
     if (++ms >= g_ms_per_tick)
     {
         ms = 0;
 
         // send a clock pulse up the USB
-        hal_send_midi(USBSTANDALONE, MIDITIMINGCLOCK, 0, 0);
+        hal_send_midi(DINMIDI, MIDITIMINGCLOCK, 0, 0);
 
-        if (++semiquaver >= 6)
+        if (++semiquaverinterval >= 6)
         {
-            semiquaver = 0;
+            semiquaverinterval = 0;
+			u8 i;
 
-		    if (Channel1.pos >= STEPS)
+		    if (step >= STEPS)
 		    {
-				Channel1.pos = 0;
+				step = 0;
+				for(i = 0; i < NUMINSTRUMENTS; i++)
+				{
+					IncrementSequence(&Instruments[i]);
+				}
 		    }
+
+			for(i = 0; i < NUMINSTRUMENTS; i++)
+			{
+				TriggerNotes(&Instruments[i], step, i);
+			}
 
 			PlotClear();
 
-			PlotPlayhead(Channel1.pos);
+			if(Instruments[g_CurrentInstrument].sequence[Instruments[g_CurrentInstrument].phrase] == Instruments[g_CurrentInstrument].phraseView)
+			{
+				PlotPlayhead(step);
+			}
 
-			PlotNotes(Channel1.steps);
+			PlotNotes(&Instruments[g_CurrentInstrument]);
 
-			TriggerNotes(Channel1.steps[Channel1.pos]);
-
-		    Channel1.pos++;
+		    step++;
 		}
 
     }
@@ -343,18 +461,10 @@ void app_init(const u16 *adc_raw)
     // calculate how many milliseconds per tick for midi clock
     CalculateMsPerClock(g_tempo);
     // example - load button states from flash
-    hal_read_flash(0, g_Buttons, BUTTON_COUNT);
-    // example - light the LEDs to say hello!
-    for (int i=0; i < 10; ++i)
-    {
-        for (int j=0; j < 10; ++j)
-        {
-            u8 b = g_Buttons[j*10 + i];
+    //hal_read_flash(0, g_Buttons, BUTTON_COUNT);
 
-            hal_plot_led(TYPEPAD, j*10 + i, 0, 0, b);
-        }
-    }
-
+	MakeInstruments();
+	hal_send_midi(DINMIDI, MIDISTART, 0, 0);
 	// store off the raw ADC frame pointer for later use
 	g_ADC = adc_raw;
 }
