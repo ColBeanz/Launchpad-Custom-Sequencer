@@ -54,8 +54,10 @@
 static const u16 *g_ADC = 0;
 
 // control buttons
-#define TEMPOUP 20
 #define TEMPODOWN 10
+#define TEMPOUP 20
+#define SUSTAINDOWN 30
+#define SUSTAINUP 40
 #define PAGEUP 91
 #define PAGEDOWN 92
 #define PAGELEFT 93
@@ -92,6 +94,8 @@ struct Instrument{
 	u8 phrase; // Position through sequence of phrases - index into sequence
 	u8 phraseView; // Current screen we are editing (1, 32)
 	u8 pitchOffset;
+	u8 sustainStates[RANGE]; // Stores number of semiquavers left of each note duration
+	u8 sustain; // note sustain
 };
 
 struct Instrument Instruments[4];
@@ -106,6 +110,7 @@ void MakeInstruments()
 		Instruments[i].sequence[1] = 2;
 		Instruments[i].phrase = 0;
 		Instruments[i].phraseView = 1;
+		Instruments[i].sustain = 1;
 	}
 }
 
@@ -140,12 +145,26 @@ void TriggerNotes(struct Instrument *instrument, u8 step, u8 channel)
 	u8 index = instrument->sequence[instrument->phrase] - 1;
 	u32 flags = instrument->steps[(index * STEPS) + step];
 
-    for (u8 bitposition = 0; bitposition < RANGE; bitposition++)
+    for (u8 note = 0; note < RANGE; note++)
     {
-        if (IsNoteOn(flags, bitposition))
+		// Send note off Messages
+		// if(instrument->sustainStates[note] == 1)
+		// {
+		// 	hal_send_midi(DINMIDI, NOTEOFF | channel, note + LOWESTNOTE, 0);
+		// 	hal_send_midi(USBSTANDALONE, NOTEOFF | channel, note + LOWESTNOTE, 0);
+		// }
+		// if(instrument->sustainStates[note] > 0)
+		// {
+		// 	instrument->sustainStates[note] -= 1;
+		// }
+
+		// Send note on messages
+        if (IsNoteOn(flags, note))
         {
-			hal_send_midi(DINMIDI, NOTEON | channel, bitposition + LOWESTNOTE, 127);
-			hal_send_midi(USBSTANDALONE, NOTEON | channel, bitposition + LOWESTNOTE, 127);
+			hal_send_midi(DINMIDI, NOTEON | channel, note + LOWESTNOTE, 127);
+			hal_send_midi(USBSTANDALONE, NOTEON | channel, note + LOWESTNOTE, 127);
+
+			instrument->sustainStates[note] = instrument->sustain;
         }
     }
 };
@@ -246,6 +265,19 @@ void app_surface_event(u8 type, u8 index, u8 value)
 					case MELODYCHANNEL:
 					{
 						g_CurrentInstrument = INSTRUMENT3;
+					}
+					break;
+					case SUSTAINUP:
+					{
+						Instruments[g_CurrentInstrument].sustain += 1;
+					}
+					break;
+					case SUSTAINDOWN:
+					{
+						if(Instruments[g_CurrentInstrument].sustain > 0)
+						{
+							Instruments[g_CurrentInstrument].sustain -= 1;
+						}
 					}
 					break;
 					case TEMPODOWN:
