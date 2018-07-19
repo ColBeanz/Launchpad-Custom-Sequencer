@@ -148,15 +148,15 @@ void TriggerNotes(struct Instrument *instrument, u8 step, u8 channel)
     for (u8 note = 0; note < RANGE; note++)
     {
 		// Send note off Messages
-		// if(instrument->sustainStates[note] == 1)
-		// {
-		// 	hal_send_midi(DINMIDI, NOTEOFF | channel, note + LOWESTNOTE, 0);
-		// 	hal_send_midi(USBSTANDALONE, NOTEOFF | channel, note + LOWESTNOTE, 0);
-		// }
-		// if(instrument->sustainStates[note] > 0)
-		// {
-		// 	instrument->sustainStates[note] -= 1;
-		// }
+		if(instrument->sustainStates[note] == 1)
+		{
+			hal_send_midi(DINMIDI, NOTEOFF | channel, note + LOWESTNOTE, 0);
+			hal_send_midi(USBSTANDALONE, NOTEOFF | channel, note + LOWESTNOTE, 0);
+		}
+		if(instrument->sustainStates[note] > 0)
+		{
+			instrument->sustainStates[note] -= 1;
+		}
 
 		// Send note on messages
         if (IsNoteOn(flags, note))
