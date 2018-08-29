@@ -3,24 +3,24 @@
 #define APP_TYPES_H
 
 /******************************************************************************
- 
+
  Copyright (c) 2015, Focusrite Audio Engineering Ltd.
  All rights reserved.
- 
+
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are met:
- 
+
  * Redistributions of source code must retain the above copyright notice, this
  list of conditions and the following disclaimer.
- 
+
  * Redistributions in binary form must reproduce the above copyright notice,
  this list of conditions and the following disclaimer in the documentation
  and/or other materials provided with the distribution.
- 
+
  * Neither the name of Focusrite Audio Engineering Ltd., nor the names of its
  contributors may be used to endorse or promote products derived from
  this software without specific prior written permission.
- 
+
  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -31,7 +31,7 @@
  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- 
+
  *****************************************************************************/
 
 // ____________________________________________________________________________
@@ -126,6 +126,22 @@ static const u8 ADC_MAP[PAD_COUNT] =
 	35, 75, 36, 76, 37, 77, 38, 78,
 	41, 81, 42, 82, 43, 83, 44, 84,
 	45, 85, 46, 86, 47, 87, 48, 88,
+};
+
+static const u8 ARRANGER_MAP[PAD_COUNT / 2] =
+{
+	81, 82, 83, 84, 85, 86, 87, 88,
+	71, 72, 73, 74, 75, 76, 77, 78,
+	61, 62, 63, 64, 65, 66, 67, 68,
+	51, 52, 53, 54, 55, 56, 57, 58
+};
+
+static const u8 PHRASES_MAP[PAD_COUNT / 2] =
+{
+	41, 42, 43, 44, 45, 46, 47, 48,
+	31, 32, 33, 34, 35, 36, 37, 38,
+	21, 22, 23, 24, 25, 26, 27, 28,
+	11, 12, 13, 14, 15, 16, 17, 18
 };
 
 // ____________________________________________________________________________

@@ -54,10 +54,13 @@
 static const u16 *g_ADC = 0;
 
 // control buttons
+#define ARRANGERSCREEN 1
+#define NOTESCREEN 2
 #define TEMPODOWN 10
 #define TEMPOUP 20
 #define SUSTAINDOWN 30
 #define SUSTAINUP 40
+#define MUTECHANNEL 80
 #define PAGEUP 91
 #define PAGEDOWN 92
 #define PAGELEFT 93
@@ -66,6 +69,14 @@ static const u16 *g_ADC = 0;
 #define BASSCHANNEL 96
 #define HARMONYCHANNEL 97
 #define MELODYCHANNEL 98
+#define MUTEVOICE0 19
+#define MUTEVOICE1 29
+#define MUTEVOICE2 39
+#define MUTEVOICE3 49
+#define MUTEVOICE4 59
+#define MUTEVOICE5 69
+#define MUTEVOICE6 79
+#define MUTEVOICE7 89
 
 static u8 g_tempo = 100;
 static u8 g_ms_per_tick;
@@ -79,11 +90,7 @@ static u8 g_ms_per_tick;
 #define INSTRUMENT0 0
 #define INSTRUMENT1 1
 #define INSTRUMENT2 2
-#define INSTRUMENT3 3
-
-// view modes
-#define ARRANGERSCREEN 0
-#define NOTESCREEN 1
+#define INSTRUMENT3 3 // index into Instruments[]
 
 u8 g_Mode = NOTESCREEN;
 u8 g_CurrentInstrument = INSTRUMENT0;
@@ -96,6 +103,10 @@ struct Instrument{
 	u8 pitchOffset;
 	u8 sustainStates[RANGE]; // Stores number of semiquavers left of each note duration
 	u8 sustain; // note sustain
+	u8 colour[3]; // LED colour
+	u8 channelButton; // Midi number corresponding to button to light up
+	u8 isMuted; // Channel mute
+	u32 mutedVoices; // Bit flags for voices that are muted
 };
 
 struct Instrument Instruments[4];
@@ -110,7 +121,43 @@ void MakeInstruments()
 		Instruments[i].sequence[1] = 2;
 		Instruments[i].phrase = 0;
 		Instruments[i].phraseView = 1;
-		Instruments[i].sustain = 1;
+		Instruments[i].sustain = 4;
+		switch(i)
+		{
+			case INSTRUMENT0:
+			{
+				Instruments[i].colour[0] = 21;
+				Instruments[i].colour[1] = 42;
+				Instruments[i].colour[2] = 63;
+				Instruments[i].channelButton = DRUMCHANNEL;
+			}
+			break;
+			case INSTRUMENT1:
+			{
+				Instruments[i].colour[0] = 63;
+				Instruments[i].colour[1] = 21;
+				Instruments[i].colour[2] = 42;
+				Instruments[i].channelButton = BASSCHANNEL;
+			}
+			break;
+			case INSTRUMENT2:
+			{
+				Instruments[i].colour[0] = 21;
+				Instruments[i].colour[1] = 63;
+				Instruments[i].colour[2] = 42;
+				Instruments[i].channelButton = HARMONYCHANNEL;
+			}
+			break;
+			case INSTRUMENT3:
+			{
+				Instruments[i].colour[0] = 42;
+				Instruments[i].colour[1] = 21;
+				Instruments[i].colour[2] = 63;
+				Instruments[i].channelButton = MELODYCHANNEL;
+			}
+			break;
+		}
+
 	}
 }
 
@@ -158,14 +205,17 @@ void TriggerNotes(struct Instrument *instrument, u8 step, u8 channel)
 			instrument->sustainStates[note] -= 1;
 		}
 
-		// Send note on messages
-        if (IsNoteOn(flags, note))
-        {
-			hal_send_midi(DINMIDI, NOTEON | channel, note + LOWESTNOTE, 127);
-			hal_send_midi(USBSTANDALONE, NOTEON | channel, note + LOWESTNOTE, 127);
+		if(!instrument->isMuted)
+		{
+			// Send note on messages
+	        if (IsNoteOn(flags, note))
+	        {
+				hal_send_midi(DINMIDI, NOTEON | channel, note + LOWESTNOTE, 127);
+				hal_send_midi(USBSTANDALONE, NOTEON | channel, note + LOWESTNOTE, 127);
 
-			instrument->sustainStates[note] = instrument->sustain;
-        }
+				instrument->sustainStates[note] = instrument->sustain;
+	        }
+		}
     }
 };
 
@@ -199,7 +249,7 @@ void PlotNotes(struct Instrument *instrument)
 		{
 			if(IsNoteOn(instrument->steps[step], bit))
 			{
-				hal_plot_led(TYPEPAD, (10 * (bit - instrument->pitchOffset)) + (step - begin) + 11, MAXLED, 0, 0);
+				hal_plot_led(TYPEPAD, (10 * (bit - instrument->pitchOffset)) + (step - begin) + 11, instrument->colour[0], instrument->colour[1], instrument->colour[2]);
 			}
 		}
 	}
@@ -228,43 +278,113 @@ void PlotPlayhead(u8 step)
 	}
 }
 
+void PlotButtons(struct Instrument *instrument, u8 isCurrent)
+{
+	if(isCurrent)
+	{
+		hal_plot_led(TYPEPAD, instrument->channelButton, instrument->colour[0], instrument->colour[1], instrument->colour[2]);
+	}
+	else
+	{
+		hal_plot_led(TYPEPAD, instrument->channelButton, instrument->colour[0] / 4, instrument->colour[1] / 4, instrument->colour[2] / 4);
+	}
+}
+
+void PlotPhrases(struct Instrument *instrument)
+{
+	for(u8 i = 0; i < PHRASES; i++)
+	{
+		hal_plot_led(TYPEPAD, PHRASES_MAP[i], instrument->colour[0], instrument->colour[1], instrument->colour[2]);
+	}
+}
+
+void PlotSequence(struct Instrument *instrument)
+{
+	for(u8 i = 0; i < PHRASES; i++)
+	{
+		if(instrument->sequence[i] == 0)
+		{
+			break;
+		}
+
+		hal_plot_led(TYPEPAD, ARRANGER_MAP[i], instrument->colour[0] / 4, instrument->colour[1] / 4, instrument->colour[2] / 4);
+	}
+}
+
 //______________________________________________________________________________
 
 void app_surface_event(u8 type, u8 index, u8 value)
 {
+	static u8 muteChannelHeld = 0;
     switch (type)
     {
         case  TYPEPAD:
         {
-            // toggle it and store it off, so we can save to flash if we want to
-			/*
-			if (value)
-            {
-                g_Buttons[index] = MAXLED * !g_Buttons[index];
-            }
-			*/
 			if (value)
 			{
 				switch (index)
 				{
+					case NOTESCREEN:
+					{
+						g_Mode = NOTESCREEN;
+					}
+					break;
+					case ARRANGERSCREEN:
+					{
+						g_Mode = ARRANGERSCREEN;
+					}
+					break;
+					case MUTECHANNEL:
+					{
+						muteChannelHeld = 1;
+					}
+					break;
 					case DRUMCHANNEL:
 					{
-						g_CurrentInstrument = INSTRUMENT0;
+						if(muteChannelHeld)
+						{
+							Instruments[INSTRUMENT0].isMuted = Instruments[INSTRUMENT0].isMuted ^ 1;
+						}
+						else
+						{
+							g_CurrentInstrument = INSTRUMENT0;
+						}
 					}
 					break;
 					case BASSCHANNEL:
 					{
-						g_CurrentInstrument = INSTRUMENT1;
+						if(muteChannelHeld)
+						{
+							Instruments[INSTRUMENT1].isMuted = Instruments[INSTRUMENT1].isMuted ^ 1;
+						}
+						else
+						{
+							g_CurrentInstrument = INSTRUMENT1;
+						}
 					}
 					break;
 					case HARMONYCHANNEL:
 					{
-						g_CurrentInstrument = INSTRUMENT2;
+						if(muteChannelHeld)
+						{
+							Instruments[INSTRUMENT2].isMuted = Instruments[INSTRUMENT2].isMuted ^ 1;
+						}
+						else
+						{
+							g_CurrentInstrument = INSTRUMENT2;
+						}
 					}
 					break;
 					case MELODYCHANNEL:
 					{
-						g_CurrentInstrument = INSTRUMENT3;
+						if(muteChannelHeld)
+						{
+							Instruments[INSTRUMENT3].isMuted = Instruments[INSTRUMENT3].isMuted ^ 1;
+						}
+						else
+						{
+							g_CurrentInstrument = INSTRUMENT3;
+						}
 					}
 					break;
 					case SUSTAINUP:
@@ -274,7 +394,7 @@ void app_surface_event(u8 type, u8 index, u8 value)
 					break;
 					case SUSTAINDOWN:
 					{
-						if(Instruments[g_CurrentInstrument].sustain > 0)
+						if(Instruments[g_CurrentInstrument].sustain > 1)
 						{
 							Instruments[g_CurrentInstrument].sustain -= 1;
 						}
@@ -327,6 +447,16 @@ void app_surface_event(u8 type, u8 index, u8 value)
 						SetFlag(Instruments[g_CurrentInstrument].steps, index, Instruments[g_CurrentInstrument].phraseView, Instruments[g_CurrentInstrument].pitchOffset);
 					}
 					break;
+				}
+			}
+			if(!value)
+			{
+				switch(index)
+				{
+					case MUTECHANNEL:
+					{
+						muteChannelHeld = 0;
+					}
 				}
 			}
 
@@ -433,57 +563,38 @@ void app_timer_event()
 				}
 		    }
 
+			PlotClear();
+
 			for(i = 0; i < NUMINSTRUMENTS; i++)
 			{
 				TriggerNotes(&Instruments[i], step, i);
+				PlotButtons(&Instruments[i], g_CurrentInstrument == i);
 			}
 
-			PlotClear();
-
-			if(Instruments[g_CurrentInstrument].sequence[Instruments[g_CurrentInstrument].phrase] == Instruments[g_CurrentInstrument].phraseView)
+			switch(g_Mode)
 			{
-				PlotPlayhead(step);
-			}
+				case ARRANGERSCREEN:
+				{
+					PlotPhrases(&Instruments[g_CurrentInstrument]);
 
-			PlotNotes(&Instruments[g_CurrentInstrument]);
+					PlotSequence(&Instruments[g_CurrentInstrument]);
+				}
+				break;
+				case NOTESCREEN:
+				{
+					if(Instruments[g_CurrentInstrument].sequence[Instruments[g_CurrentInstrument].phrase] == Instruments[g_CurrentInstrument].phraseView)
+					{
+						PlotPlayhead(step);
+					}
+
+					PlotNotes(&Instruments[g_CurrentInstrument]);
+				}
+				break;
+			}
 
 		    step++;
 		}
-
     }
-
-
-
-/*
-	// alternative example - show raw ADC data as LEDs
-	for (int i=0; i < PAD_COUNT; ++i)
-	{
-		// raw adc values are 12 bit, but LEDs are 6 bit.
-		// Let's saturate into r;g;b for a rainbow effect to show pressure
-		u16 r = 0;
-		u16 g = 0;
-		u16 b = 0;
-
-		u16 x = (3 * MAXLED * g_ADC[i]) >> 12;
-
-		if (x < MAXLED)
-		{
-			r = x;
-		}
-		else if (x >= MAXLED && x < (2*MAXLED))
-		{
-			r = MAXLED - x;
-			g = x - MAXLED;
-		}
-		else
-		{
-			g = MAXLED - x;
-			b = x - MAXLED;
-		}
-
-		hal_plot_led(TYPEPAD, ADC_MAP[i], r, g, b);
-	}
- */
 }
 
 //______________________________________________________________________________
