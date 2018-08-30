@@ -92,7 +92,7 @@ static u8 g_ms_per_tick;
 #define INSTRUMENT2 2
 #define INSTRUMENT3 3 // index into Instruments[]
 
-u8 g_Mode = NOTESCREEN;
+u8 g_Mode = ARRANGERSCREEN;
 u8 g_CurrentInstrument = INSTRUMENT0;
 
 struct Instrument{
@@ -207,6 +207,7 @@ void TriggerNotes(struct Instrument *instrument, u8 step, u8 channel)
 
 		if(!instrument->isMuted)
 		{
+			//TODO: Check for muted notes here and continue;
 			// Send note on messages
 	        if (IsNoteOn(flags, note))
 	        {
@@ -290,16 +291,27 @@ void PlotButtons(struct Instrument *instrument, u8 isCurrent)
 	}
 }
 
+
 void PlotPhrases(struct Instrument *instrument)
 {
-	for(u8 i = 0; i < PHRASES; i++)
-	{
-		hal_plot_led(TYPEPAD, PHRASES_MAP[i], instrument->colour[0], instrument->colour[1], instrument->colour[2]);
-	}
+    for(u8 i = 0; i < PHRASES; i++)
+    {
+        if(i == instrument->phraseView - 1)
+        {
+            hal_plot_led(TYPEPAD, PHRASES_MAP[i], 63, 63, 63);
+			continue;
+        }
+
+        hal_plot_led(TYPEPAD, PHRASES_MAP[i], instrument->colour[0], instrument->colour[1], instrument->colour[2]);
+    }
 }
 
 void PlotSequence(struct Instrument *instrument)
 {
+	static u8 flash = 0;
+
+    flash = flash ^ 1;
+
 	for(u8 i = 0; i < PHRASES; i++)
 	{
 		if(instrument->sequence[i] == 0)
@@ -307,7 +319,28 @@ void PlotSequence(struct Instrument *instrument)
 			break;
 		}
 
-		hal_plot_led(TYPEPAD, ARRANGER_MAP[i], instrument->colour[0] / 4, instrument->colour[1] / 4, instrument->colour[2] / 4);
+		if(instrument->sequence[i] == instrument->phraseView)
+		{
+			if(i == instrument->phrase)
+			{
+				hal_plot_led(TYPEPAD, ARRANGER_MAP[i], 63 * flash, 63 * flash, 63 * flash);
+			}
+			else
+			{
+				hal_plot_led(TYPEPAD, ARRANGER_MAP[i], 63, 63, 63);
+			}
+		}
+		else
+		{
+			if(i == instrument->phrase)
+			{
+				hal_plot_led(TYPEPAD, ARRANGER_MAP[i], instrument->colour[0] * flash, instrument->colour[1] * flash, instrument->colour[2] * flash);
+			}
+			else
+			{
+				hal_plot_led(TYPEPAD, ARRANGER_MAP[i], instrument->colour[0] / 4, instrument->colour[1] / 4, instrument->colour[2] / 4);
+			}
+		}
 	}
 }
 
@@ -444,7 +477,22 @@ void app_surface_event(u8 type, u8 index, u8 value)
 					break;
 					default:
 					{
-						SetFlag(Instruments[g_CurrentInstrument].steps, index, Instruments[g_CurrentInstrument].phraseView, Instruments[g_CurrentInstrument].pitchOffset);
+						if(g_Mode == ARRANGERSCREEN)
+						{
+							for(u8 i = 0; i < PHRASES; i++)
+							{
+								if(Instruments[g_CurrentInstrument].sequence[i] == 0)
+								{
+									Instruments[g_CurrentInstrument].sequence[i] = PAD_TO_INDEX_MAP[index];
+									break;
+								}
+							}
+						}
+						if(g_Mode == NOTESCREEN)
+						{
+							SetFlag(Instruments[g_CurrentInstrument].steps, index, Instruments[g_CurrentInstrument].phraseView, Instruments[g_CurrentInstrument].pitchOffset);
+							break;
+						}
 					}
 					break;
 				}
