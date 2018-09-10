@@ -58,8 +58,10 @@ static const u16 *g_ADC = 0;
 #define NOTESCREEN 2
 #define TEMPODOWN 10
 #define TEMPOUP 20
-#define SUSTAINDOWN 30
-#define SUSTAINUP 40
+#define RELEASEDOWN 30
+#define RELEASEUP 40
+#define REMOVEPHRASE 60
+#define APPENDPHRASE 70
 #define MUTECHANNEL 80
 #define PAGEUP 91
 #define PAGEDOWN 92
@@ -117,8 +119,6 @@ void MakeInstruments()
 	u8 i;
 	for(i = 0; i < NUMINSTRUMENTS; i++ )
 	{
-		Instruments[i].sequence[0] = 1;
-		Instruments[i].sequence[1] = 2;
 		Instruments[i].phrase = 0;
 		Instruments[i].phraseView = 1;
 		Instruments[i].sustain = 4;
@@ -207,8 +207,10 @@ void TriggerNotes(struct Instrument *instrument, u8 step, u8 channel)
 
 		if(!instrument->isMuted)
 		{
-			//TODO: Check for muted notes here and continue;
-			// Send note on messages
+			if(IsNoteOn(instrument->mutedVoices, note))
+			{
+				continue;
+			}
 	        if (IsNoteOn(flags, note))
 	        {
 				hal_send_midi(DINMIDI, NOTEON | channel, note + LOWESTNOTE, 127);
@@ -228,9 +230,9 @@ void CalculateMsPerClock(u8 tempo)
 
 void PlotClear()
 {
-	for (int i = 10; i <= 80; i += 10)
+	for (int i = 0; i <= 90; i += 10)
 	{
-		for (int j = 1; j <= RANGE; j++)
+		for (int j = 0; j < 10; j++)
 		{
 			hal_plot_led(TYPEPAD, i+j, 0, 0, 0);
 		}
@@ -256,22 +258,42 @@ void PlotNotes(struct Instrument *instrument)
 	}
 }
 
+int Pow(u32 base, u32 exponent)
+{
+	u32 result = 1;
+	for(;;)
+	{
+		if (exponent & 1)
+		{
+			result *= base;
+		}
+		exponent >>= 1;
+		if(!exponent)
+		{
+			break;
+		}
+		base *= base;
+	}
+
+	return result;
+}
+
 void PlotPlayhead(u8 step)
 {
-	if (step == 0)
-	{
-		for (u8 i = 1; i < 9; i++)
-		{
-			hal_plot_led(TYPEPAD, 8 + (i * 10), 0, 0, 0);
-		}
-	}
-	else
-	{
-		for (u8 i = 1; i < 9; i++)
-		{
-			hal_plot_led(TYPEPAD, step + (i * 10), 0, 0, 0);
-		}
-	}
+	// if (step == 0)
+	// {
+	// 	for (u8 i = 1; i < 9; i++)
+	// 	{
+	// 		hal_plot_led(TYPEPAD, 8 + (i * 10), 0, 0, 0);
+	// 	}
+	// }
+	// else
+	// {
+	// 	for (u8 i = 1; i < 9; i++)
+	// 	{
+	// 		hal_plot_led(TYPEPAD, step + (i * 10), 0, 0, 0);
+	// 	}
+	// }
 
 	for (u8 i = 1; i < 9; i++)
 	{
@@ -283,12 +305,54 @@ void PlotButtons(struct Instrument *instrument, u8 isCurrent)
 {
 	if(isCurrent)
 	{
-		hal_plot_led(TYPEPAD, instrument->channelButton, instrument->colour[0], instrument->colour[1], instrument->colour[2]);
+		if(instrument->isMuted)
+		{
+			hal_plot_led(TYPEPAD, instrument->channelButton, MAXLED, 0, 0);
+		}
+		else
+		{
+			hal_plot_led(TYPEPAD, instrument->channelButton, instrument->colour[0], instrument->colour[1], instrument->colour[2]);
+		}
+
+		hal_plot_led(TYPEPAD, ARRANGERSCREEN, instrument->colour[0], instrument->colour[1], instrument->colour[2]);
 	}
 	else
 	{
-		hal_plot_led(TYPEPAD, instrument->channelButton, instrument->colour[0] / 4, instrument->colour[1] / 4, instrument->colour[2] / 4);
+		if(instrument->isMuted)
+		{
+			hal_plot_led(TYPEPAD, instrument->channelButton, MAXLED, 0, 0);
+		}
+		else
+		{
+			hal_plot_led(TYPEPAD, instrument->channelButton, instrument->colour[0] / 4, instrument->colour[1] / 4, instrument->colour[2] / 4);
+		}
 	}
+
+	for(u8 i = 0; i < 8; i++)
+	{
+		if(IsNoteOn(instrument->mutedVoices, i + instrument->pitchOffset))
+		{
+			hal_plot_led(TYPEPAD, (10 * (i + 1)) + 9, MAXLED, 0, 0);
+		}
+	}
+
+	// Plot individual staticly coloured buttons.
+	hal_plot_led(TYPEPAD, PAGEUP, MAXLED, MAXLED, MAXLED);
+	hal_plot_led(TYPEPAD, PAGEDOWN, MAXLED, MAXLED, MAXLED);
+	hal_plot_led(TYPEPAD, PAGELEFT, MAXLED, MAXLED, MAXLED);
+	hal_plot_led(TYPEPAD, PAGERIGHT, MAXLED, MAXLED, MAXLED);
+
+	hal_plot_led(TYPEPAD, MUTECHANNEL, 20, 0, 0);
+	hal_plot_led(TYPEPAD, APPENDPHRASE, 0, 0, MAXLED);
+	hal_plot_led(TYPEPAD, REMOVEPHRASE, 10, 0, MAXLED);
+
+	hal_plot_led(TYPEPAD, RELEASEUP, 0, MAXLED, 10);
+	hal_plot_led(TYPEPAD, RELEASEDOWN, 0, 10, 5);
+
+	hal_plot_led(TYPEPAD, TEMPOUP, 0, MAXLED, 0);
+	hal_plot_led(TYPEPAD, TEMPODOWN, 0, 10, 0);
+
+	hal_plot_led(TYPEPAD, NOTESCREEN, MAXLED, MAXLED, MAXLED);
 }
 
 
@@ -298,7 +362,7 @@ void PlotPhrases(struct Instrument *instrument)
     {
         if(i == instrument->phraseView - 1)
         {
-            hal_plot_led(TYPEPAD, PHRASES_MAP[i], 63, 63, 63);
+            hal_plot_led(TYPEPAD, PHRASES_MAP[i], MAXLED, MAXLED, MAXLED);
 			continue;
         }
 
@@ -323,11 +387,11 @@ void PlotSequence(struct Instrument *instrument)
 		{
 			if(i == instrument->phrase)
 			{
-				hal_plot_led(TYPEPAD, ARRANGER_MAP[i], 63 * flash, 63 * flash, 63 * flash);
+				hal_plot_led(TYPEPAD, ARRANGER_MAP[i], MAXLED * flash, MAXLED * flash, MAXLED * flash);
 			}
 			else
 			{
-				hal_plot_led(TYPEPAD, ARRANGER_MAP[i], 63, 63, 63);
+				hal_plot_led(TYPEPAD, ARRANGER_MAP[i], MAXLED, MAXLED, MAXLED);
 			}
 		}
 		else
@@ -338,7 +402,7 @@ void PlotSequence(struct Instrument *instrument)
 			}
 			else
 			{
-				hal_plot_led(TYPEPAD, ARRANGER_MAP[i], instrument->colour[0] / 4, instrument->colour[1] / 4, instrument->colour[2] / 4);
+				hal_plot_led(TYPEPAD, ARRANGER_MAP[i], instrument->colour[0], instrument->colour[1], instrument->colour[2]);
 			}
 		}
 	}
@@ -349,6 +413,7 @@ void PlotSequence(struct Instrument *instrument)
 void app_surface_event(u8 type, u8 index, u8 value)
 {
 	static u8 muteChannelHeld = 0;
+	static u8 appendPhraseHeld = 0;
     switch (type)
     {
         case  TYPEPAD:
@@ -370,6 +435,22 @@ void app_surface_event(u8 type, u8 index, u8 value)
 					case MUTECHANNEL:
 					{
 						muteChannelHeld = 1;
+					}
+					break;
+					case APPENDPHRASE:
+					{
+						appendPhraseHeld = 1;
+					}
+					break;
+					case REMOVEPHRASE:
+					{
+						for(u8 i = 1; i < PHRASES; i++)
+						{
+							if(Instruments[g_CurrentInstrument].sequence[i] == 0)
+							{
+								Instruments[g_CurrentInstrument].sequence[i - 1] = 0;
+							}
+						}
 					}
 					break;
 					case DRUMCHANNEL:
@@ -420,12 +501,12 @@ void app_surface_event(u8 type, u8 index, u8 value)
 						}
 					}
 					break;
-					case SUSTAINUP:
+					case RELEASEUP:
 					{
 						Instruments[g_CurrentInstrument].sustain += 1;
 					}
 					break;
-					case SUSTAINDOWN:
+					case RELEASEDOWN:
 					{
 						if(Instruments[g_CurrentInstrument].sustain > 1)
 						{
@@ -475,16 +556,79 @@ void app_surface_event(u8 type, u8 index, u8 value)
 						}
 					}
 					break;
+					case MUTEVOICE0:
+					{
+						Instruments[g_CurrentInstrument].mutedVoices = Instruments[g_CurrentInstrument].mutedVoices ^ Pow(2, Instruments[g_CurrentInstrument].pitchOffset + 0);
+					}
+					break;
+					case MUTEVOICE1:
+					{
+						Instruments[g_CurrentInstrument].mutedVoices = Instruments[g_CurrentInstrument].mutedVoices ^ Pow(2, Instruments[g_CurrentInstrument].pitchOffset + 1);
+					}
+					break;
+					case MUTEVOICE2:
+					{
+						Instruments[g_CurrentInstrument].mutedVoices = Instruments[g_CurrentInstrument].mutedVoices ^ Pow(2, Instruments[g_CurrentInstrument].pitchOffset + 2);
+					}
+					break;
+					case MUTEVOICE3:
+					{
+						Instruments[g_CurrentInstrument].mutedVoices = Instruments[g_CurrentInstrument].mutedVoices ^ Pow(2, Instruments[g_CurrentInstrument].pitchOffset + 3);
+					}
+					break;
+					case MUTEVOICE4:
+					{
+						Instruments[g_CurrentInstrument].mutedVoices = Instruments[g_CurrentInstrument].mutedVoices ^ Pow(2, Instruments[g_CurrentInstrument].pitchOffset + 4);
+					}
+					break;
+					case MUTEVOICE5:
+					{
+						Instruments[g_CurrentInstrument].mutedVoices = Instruments[g_CurrentInstrument].mutedVoices ^ Pow(2, Instruments[g_CurrentInstrument].pitchOffset + 5);
+					}
+					break;
+					case MUTEVOICE6:
+					{
+						Instruments[g_CurrentInstrument].mutedVoices = Instruments[g_CurrentInstrument].mutedVoices ^ Pow(2, Instruments[g_CurrentInstrument].pitchOffset + 6);
+					}
+					break;
+					case MUTEVOICE7:
+					{
+						Instruments[g_CurrentInstrument].mutedVoices = Instruments[g_CurrentInstrument].mutedVoices ^ Pow(2, Instruments[g_CurrentInstrument].pitchOffset + 7);
+					}
+					break;
 					default:
 					{
 						if(g_Mode == ARRANGERSCREEN)
 						{
-							for(u8 i = 0; i < PHRASES; i++)
+							if(appendPhraseHeld)
 							{
-								if(Instruments[g_CurrentInstrument].sequence[i] == 0)
+								if(index < 49) // Check that the pad we hit is in the bottom half of the pads
 								{
-									Instruments[g_CurrentInstrument].sequence[i] = PAD_TO_INDEX_MAP[index];
-									break;
+									for(u8 i = 0; i < PHRASES; i++)
+									{
+										if(Instruments[g_CurrentInstrument].sequence[i] == 0)
+										{
+											Instruments[g_CurrentInstrument].sequence[i] = PAD_TO_INDEX_MAP[index];
+											break;
+										}
+									}
+								}
+							}
+							else
+							{
+								if(index > 49)
+								{
+									if(Instruments[g_CurrentInstrument].sequence[PAD_TO_INDEX_MAP[index] - 1] != 0)
+									{
+										if(PAD_TO_INDEX_MAP[index] != 0)
+										{
+											Instruments[g_CurrentInstrument].phraseView = Instruments[g_CurrentInstrument].sequence[PAD_TO_INDEX_MAP[index] - 1];
+										}
+									}
+								}
+								else
+								{
+									Instruments[g_CurrentInstrument].phraseView = PAD_TO_INDEX_MAP[index];
 								}
 							}
 						}
@@ -504,6 +648,10 @@ void app_surface_event(u8 type, u8 index, u8 value)
 					case MUTECHANNEL:
 					{
 						muteChannelHeld = 0;
+					}
+					case APPENDPHRASE:
+					{
+						appendPhraseHeld = 0;
 					}
 				}
 			}
